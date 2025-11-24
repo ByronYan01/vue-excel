@@ -136,9 +136,11 @@ function transferColumns(excelSheet, spreadSheet, options) {
   for (let i = 0; i < (excelSheet.columns || []).length; i++) {
     spreadSheet.cols[i.toString()] = {};
     if (excelSheet.columns[i].width) {
+      // Excel列宽单位 → 像素转换 (1单位 ≈ 7像素)
       spreadSheet.cols[i.toString()].width =
         excelSheet.columns[i].width * 6 + (options.widthOffset || 0);
     } else {
+      // 空列使用默认列宽
       spreadSheet.cols[i.toString()].width =
         defaultColWidth + (options.widthOffset || 0);
     }
@@ -165,7 +167,7 @@ function getCellText(cell) {
             if (precision) {
               return (value * 100).toFixed(precision[1].length) + "%";
             } else {
-              return value * 100 + "%";
+              return (value * 100).toFixed(0) + "%";
             }
           } else if (/0(\.0+)?/.test(cell.style.numFmt)) {
             let prefix = "";
@@ -238,7 +240,63 @@ function getCellText(cell) {
     case 5: //超链接
       return value.text;
     case 6: //公式
-      return get(value, "result.error") || value.result;
+      let resultValue = get(value, "result.error") || value.result;
+      // 如果是错误信息，直接返回
+      if (get(value, "result.error")) {
+        return resultValue;
+      }
+      // 如果是数字类型且存在numFmt，应用数字格式化逻辑
+      if (typeof resultValue === "number" && cell.style.numFmt) {
+        try {
+          // 复制数字分支的格式化逻辑
+          if (cell.style.numFmt.endsWith("%")) {
+            let precision = cell.style.numFmt.match(/\.(\d+)%/);
+            if (precision) {
+              return (resultValue * 100).toFixed(precision[1].length) + "%";
+            } else {
+              return (resultValue * 100).toFixed(0) + "%";
+            }
+          } else if (/0(\.0+)?/.test(cell.style.numFmt)) {
+            let prefix = "";
+            if (cell.style.numFmt.startsWith("$")) {
+              prefix = "$";
+            } else if (cell.style.numFmt.startsWith('"¥')) {
+              prefix = "¥";
+            }
+            if (resultValue === 0 && cell.style.numFmt.startsWith("_")) {
+              return "-";
+            }
+            let precision = cell.style.numFmt.match(/0\.(0+)(_|;|$)/);
+            if (precision) {
+              precision = precision[1].length;
+            } else {
+              precision = 0;
+            }
+            let result = resultValue.toFixed(precision) + "";
+            if (cell.style.numFmt.includes("#,##")) {
+              result = result.split(".");
+              let number = result[0].split("").reverse();
+              let newNumber = [];
+              for (let i = 0; i < number.length; i++) {
+                newNumber.push(number[i]);
+                if (
+                  (i + 1) % 3 === 0 &&
+                  i < number.length - 1 &&
+                  number[i + 1] !== "-"
+                ) {
+                  newNumber.push(",");
+                }
+              }
+              result[0] = newNumber.reverse().join("");
+              result = result.join(".");
+            }
+            return prefix + result;
+          }
+        } catch (e) {
+          return resultValue;
+        }
+      }
+      return resultValue;
     case 8: //富文本
       return cell.text;
     case 9: //Boolean
@@ -286,6 +344,7 @@ function transferThemeColor(themeIndex, tint) {
 function getStyle(cell) {
   cell.style = cloneDeep(cell.style);
   let backGroundColor = null;
+  // 1. 背景色处理
   if (cell.style.fill && cell.style.fill.fgColor) {
     // 8位字符颜色先转rgb再转16进制颜色
     if (cell.style.fill.fgColor.argb) {
@@ -307,7 +366,7 @@ function getStyle(cell) {
   }
   //*************************************************************************** */
   //*********************字体存在背景色******************************
-  // 字体颜色
+  // 2. 字体颜色处理
   let fontColor = null;
   if (cell.style.font && cell.style.font.color) {
     if (cell.style.font.color.argb) {
@@ -326,6 +385,7 @@ function getStyle(cell) {
   if (fontColor) {
     cell.style.color = fontColor;
   }
+  // 3. 对齐方式转换
   // exceljs 对齐的格式转成 x-date-spreedsheet 能识别的对齐格式
   if (cell.style.alignment) {
     if (cell.style.alignment.horizontal) {
@@ -338,6 +398,7 @@ function getStyle(cell) {
   if (cell.style.alignment && cell.style.alignment.wrapText) {
     cell.style.textwrap = true;
   }
+  // 4. 边框转换
   if (cell.style.border) {
     let styleBorder = {};
     Object.keys(cell.style.border).forEach((position) => {
@@ -362,6 +423,7 @@ function getStyle(cell) {
     cell.style.border2 = { ...cell.style.border };
     cell.style.border = styleBorder;
   }
+  // 5. 字体大小调整 (磅 → 像素)
   if (
     cell.style.font &&
     cell.style.font.size &&
@@ -411,9 +473,11 @@ export function transferExcelToSpreadSheet(workbook, options) {
     (sheet._rows || []).forEach((row, spreadSheetRowIndex) => {
       sheetData.rows[spreadSheetRowIndex] = { cells: {} };
       if (row.height) {
+        // Excel行高 → 像素转换 (1单位 ≈ 0.75px)
         sheetData.rows[spreadSheetRowIndex].height =
           row.height + (options.heightOffset || 0);
       } else {
+        // 空行使用默认高度
         sheetData.rows[spreadSheetRowIndex].height =
           defaultRowHeight + (options.heightOffset || 0);
       }

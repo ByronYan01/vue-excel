@@ -119,6 +119,7 @@ export function readExcelData(buffer, xls) {
       const workbook = read(buffer, {
         type: "array",
         cellDates: true, // 关键
+        cellStyles: true,
         // UTC: false,
         // dateNF: "YYYY/MM/DD HH:mm:ss",
         // dateNF: "yyyy年m月d日",
